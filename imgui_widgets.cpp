@@ -4059,8 +4059,32 @@ static bool ImCharIsSeparatorW(unsigned int c)
     static const unsigned int separator_list[] =
     {
         ',', 0x3001, '.', 0x3002, ';', 0xFF1B, '(', 0xFF08, ')', 0xFF09, '{', 0xFF5B, '}', 0xFF5D,
-        '[', 0x300C, ']', 0x300D, '|', 0xFF5C, '!', 0xFF01, '\\', 0xFFE5, '/', 0x30FB, 0xFF0F,
+        '[', 0x300C, ']', 0x300D, '|', 0xFF5C, '!', 0xFF01, '\\', 0xFFE5, '/', 0x30FB, 0xFF0F, '?', 0x003F,
+        '"', 0x0022, ':', 0X03A, '~', 0x007E, '`', 0x0060, '&', 0x026, '*', 0x002A,  '$', 0x0024, '%', 0x0025,    // Added more symbols that are likely to be used as word dividers
         '\n', '\r',
+    };
+    for (unsigned int separator : separator_list)
+        if (c == separator)
+            return true;
+    return false;
+}
+
+static bool ImCharIsSubwordSeparatorW(unsigned int c)
+{
+    static const unsigned int separator_list[] =
+    {
+        '-', 0x2D, '_', 0x005f,     // Initially these were the only symbols I wanted to include and if we want to match expectations from other text processors this should be fine
+        // But upon further review there are quite a number of symbols that could show up within a word and I see no reason not to include some of them here
+        // When subword separators are encountered multiple times in sequence we jump to the farthest most occurrence which I think works well here
+        // One case that probably isn't covered by the above would be ()->
+        // Remember that subword nav will fallback to word nav if needed and in addition to these symbols it will also traverse camel case naming
+        '\'', 0x0027,  ':', 0X03A, '&', 0x026, '%', 0x0025,     // Some intentional repetitions to allow for different behavior from word traversal
+        '+', 0x002B, '=', 0x003D, '<', 0x003C, '>', 0x003E, '^', 0x005E,    // now these I am unsure of as the only reason to have them midword would likely be sloppy code style
+                                                                                                                   // Nevertheless they are symbols that can show up midword and dont get picked up by word nav
+                                                             
+                                                            
+                                                             
+
     };
     for (unsigned int separator : separator_list)
         if (c == separator)
@@ -4101,6 +4125,46 @@ static int is_word_boundary_from_left(ImGuiInputTextState* obj, int idx)
     bool curr_separ = ImCharIsSeparatorW(curr_c);
     return ((prev_white) && !(curr_separ || curr_white)) || (curr_separ && !prev_separ);
 }
+static int is_subword_boundary_from_right(ImGuiInputTextState* obj, int idx)
+{
+    if ((obj->Flags & ImGuiInputTextFlags_Password) || idx <= 0)
+        return 0;
+
+    const char* curr_p = obj->TextSrc + idx;
+    const char* prev_p = ImTextFindPreviousUtf8Codepoint(obj->TextSrc, curr_p);
+    unsigned int curr_c; ImTextCharFromUtf8(&curr_c, curr_p, obj->TextSrc + obj->TextLen);
+    unsigned int prev_c; ImTextCharFromUtf8(&prev_c, prev_p, obj->TextSrc + obj->TextLen);
+    bool prev_upper = ImCharIsUpper(prev_c);
+    bool curr_upper = ImCharIsUpper(curr_c);
+    bool prev_wsepar = ImCharIsSeparatorW(prev_c);
+    bool curr_wsepar = ImCharIsSeparatorW(curr_c);
+    bool prev_white = ImCharIsBlankW(prev_c);
+    bool prev_separ = ImCharIsSubwordSeparatorW(prev_c);
+    bool curr_white = ImCharIsBlankW(curr_c);
+    bool curr_separ = ImCharIsSubwordSeparatorW(curr_c);
+    return ((!prev_upper && curr_upper) || (curr_upper && curr_wsepar && prev_white) ||  // camelcase
+                (!(prev_white || prev_separ) && curr_separ)  || curr_wsepar ||
+        (curr_separ && !prev_separ) || (!curr_separ && prev_wsepar));
+}
+static int is_subword_boundary_from_left(ImGuiInputTextState* obj, int idx)
+{
+    if ((obj->Flags & ImGuiInputTextFlags_Password) || idx <= 0)
+        return 0;
+
+    const char* curr_p = obj->TextSrc + idx;
+    const char* prev_p = ImTextFindPreviousUtf8Codepoint(obj->TextSrc, curr_p);
+    unsigned int prev_c; ImTextCharFromUtf8(&prev_c, curr_p, obj->TextSrc + obj->TextLen);
+    unsigned int curr_c; ImTextCharFromUtf8(&curr_c, prev_p, obj->TextSrc + obj->TextLen);
+    bool prev_upper = ImCharIsUpper(prev_c);
+    bool curr_upper = ImCharIsUpper(curr_c);
+    bool prev_wsepar = ImCharIsSeparatorW(prev_c);
+    bool curr_wsepar = ImCharIsSeparatorW(curr_c);
+    bool prev_white = ImCharIsBlankW(prev_c);
+    bool prev_separ = ImCharIsSubwordSeparatorW(prev_c);
+    bool curr_white = ImCharIsBlankW(curr_c);
+    bool curr_separ = ImCharIsSubwordSeparatorW(curr_c);
+    return ((!prev_separ && (curr_separ)) || !(prev_separ) && prev_wsepar || curr_wsepar || (prev_upper && !curr_upper));
+}
 static int  STB_TEXTEDIT_MOVEWORDLEFT_IMPL(ImGuiInputTextState* obj, int idx)
 {
     idx = IMSTB_TEXTEDIT_GETPREVCHARINDEX(obj, idx);
@@ -4124,9 +4188,37 @@ static int  STB_TEXTEDIT_MOVEWORDRIGHT_WIN(ImGuiInputTextState* obj, int idx)
         idx = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx);
     return idx > len ? len : idx;
 }
+static int  STB_TEXTEDIT_MOVESUBWORDLEFT_IMPL(ImGuiInputTextState* obj, int idx)
+{
+    idx = IMSTB_TEXTEDIT_GETPREVCHARINDEX(obj, idx);
+    while (idx >= 0 && !is_subword_boundary_from_right(obj, idx))
+        idx = IMSTB_TEXTEDIT_GETPREVCHARINDEX(obj, idx);
+    return idx < 0 ? 0 : idx;
+}
+static int  STB_TEXTEDIT_MOVESUBWORDRIGHT_MAC(ImGuiInputTextState* obj, int idx)
+{
+    int len = obj->TextLen;
+    idx = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx);
+    while (idx < len && !is_subword_boundary_from_left(obj, idx))
+        idx = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx);
+    return idx > len ? len : idx;
+}
+static int  STB_TEXTEDIT_MOVESUBWORDRIGHT_WIN(ImGuiInputTextState* obj, int idx)
+{
+    idx = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx);
+    int len = obj->TextLen;
+    while (idx < len && !is_subword_boundary_from_left(obj, idx))
+        idx = IMSTB_TEXTEDIT_GETNEXTCHARINDEX(obj, idx);
+    return idx > len ? len : idx;
+}
 static int  STB_TEXTEDIT_MOVEWORDRIGHT_IMPL(ImGuiInputTextState* obj, int idx)  { ImGuiContext& g = *obj->Ctx; if (g.IO.ConfigMacOSXBehaviors) return STB_TEXTEDIT_MOVEWORDRIGHT_MAC(obj, idx); else return STB_TEXTEDIT_MOVEWORDRIGHT_WIN(obj, idx); }
 #define STB_TEXTEDIT_MOVEWORDLEFT       STB_TEXTEDIT_MOVEWORDLEFT_IMPL  // They need to be #define for stb_textedit.h
 #define STB_TEXTEDIT_MOVEWORDRIGHT      STB_TEXTEDIT_MOVEWORDRIGHT_IMPL
+
+static int  STB_TEXTEDIT_MOVESUBWORDRIGHT_IMPL(ImGuiInputTextState* obj, int idx) { ImGuiContext& g = *obj->Ctx; if (g.IO.ConfigMacOSXBehaviors) return STB_TEXTEDIT_MOVESUBWORDRIGHT_MAC(obj, idx); else return STB_TEXTEDIT_MOVESUBWORDRIGHT_WIN(obj, idx); }
+#define STB_TEXTEDIT_MOVESUBWORDLEFT       STB_TEXTEDIT_MOVESUBWORDLEFT_IMPL  // They need to be #define for stb_textedit.h
+#define STB_TEXTEDIT_MOVESUBWORDRIGHT      STB_TEXTEDIT_MOVESUBWORDRIGHT_IMPL
+
 
 static void STB_TEXTEDIT_DELETECHARS(ImGuiInputTextState* obj, int pos, int n)
 {
@@ -4187,6 +4279,8 @@ static bool STB_TEXTEDIT_INSERTCHARS(ImGuiInputTextState* obj, int pos, const ch
 #define STB_TEXTEDIT_K_WORDRIGHT    0x20000D // keyboard input to move cursor right one word
 #define STB_TEXTEDIT_K_PGUP         0x20000E // keyboard input to move cursor up a page
 #define STB_TEXTEDIT_K_PGDOWN       0x20000F // keyboard input to move cursor down a page
+#define STB_TEXTEDIT_K_SUBWORDLEFT 0x200011 // keyboard input to move cursor left one subword separator
+#define STB_TEXTEDIT_K_SUBWORDRIGHT 0x200012 // keyboard input to move cursor right one subword separator
 #define STB_TEXTEDIT_K_SHIFT        0x400000
 
 #define IMSTB_TEXTEDIT_IMPLEMENTATION
@@ -4892,8 +4986,8 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
 
         const int k_mask = (io.KeyShift ? STB_TEXTEDIT_K_SHIFT : 0);
         const bool is_wordmove_key_down = is_osx ? io.KeyAlt : io.KeyCtrl;                     // OS X style: Text editing cursor movement using Alt instead of Ctrl
-        const bool is_startend_key_down = is_osx && io.KeyCtrl && !io.KeySuper && !io.KeyAlt;  // OS X style: Line/Text Start and End using Cmd+Arrows instead of Home/End
-
+        const bool is_subword_key_down = is_osx ? io.KeyCtrl : io.KeyAlt; // Reverse the condition for wordmove for text editing cursor movement. However this would conflict on OS X without changing startend key
+        const bool is_startend_key_down = is_osx && io.KeyCtrl && !io.KeySuper && !io.KeyAlt;  // startend key is also covered with home/end so I don't see a need to change anything personally but reminder ctrl + alt is free if there's some other action
         // Using Shortcut() with ImGuiInputFlags_RouteFocused (default policy) to allow routing operations for other code (e.g. calling window trying to use CTRL+A and CTRL+B: former would be handled by InputText)
         // Otherwise we could simply assume that we own the keys as we are active.
         const ImGuiInputFlags f_repeat = ImGuiInputFlags_Repeat;
@@ -4912,8 +5006,9 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
 
         // FIXME: Should use more Shortcut() and reduce IsKeyPressed()+SetKeyOwner(), but requires modifiers combination to be taken account of.
         // FIXME-OSX: Missing support for Alt(option)+Right/Left = go to end of line, or next line if already in end of line.
-        if (IsKeyPressed(ImGuiKey_LeftArrow))                        { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINESTART : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDLEFT : STB_TEXTEDIT_K_LEFT) | k_mask); }
-        else if (IsKeyPressed(ImGuiKey_RightArrow))                  { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINEEND : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDRIGHT : STB_TEXTEDIT_K_RIGHT) | k_mask); }
+        // Is the above fixme separate from startend key?
+        if (IsKeyPressed(ImGuiKey_LeftArrow)) { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINESTART : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDLEFT : is_subword_key_down ? STB_TEXTEDIT_K_SUBWORDLEFT : STB_TEXTEDIT_K_LEFT) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_RightArrow)) { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINEEND : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDRIGHT : is_subword_key_down ? STB_TEXTEDIT_K_SUBWORDRIGHT : STB_TEXTEDIT_K_RIGHT) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_UpArrow) && is_multiline)     { if (io.KeyCtrl) SetScrollY(draw_window, ImMax(draw_window->Scroll.y - g.FontSize, 0.0f)); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTSTART : STB_TEXTEDIT_K_UP) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_DownArrow) && is_multiline)   { if (io.KeyCtrl) SetScrollY(draw_window, ImMin(draw_window->Scroll.y + g.FontSize, GetScrollMaxY())); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTEND : STB_TEXTEDIT_K_DOWN) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_PageUp) && is_multiline)      { state->OnKeyPressed(STB_TEXTEDIT_K_PGUP | k_mask); scroll_y -= row_count_per_page * g.FontSize; }
@@ -4925,19 +5020,25 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             if (!state->HasSelection())
             {
                 // OSX doesn't seem to have Super+Delete to delete until end-of-line, so we don't emulate that (as opposed to Super+Backspace)
-                if (is_wordmove_key_down)
+                if (is_startend_key_down)  
+                    state->OnKeyPressed(STB_TEXTEDIT_K_LINEEND | STB_TEXTEDIT_K_SHIFT);
+                else if (is_wordmove_key_down)
                     state->OnKeyPressed(STB_TEXTEDIT_K_WORDRIGHT | STB_TEXTEDIT_K_SHIFT);
+                else if (is_subword_key_down)
+                    state->OnKeyPressed(STB_TEXTEDIT_K_SUBWORDRIGHT | STB_TEXTEDIT_K_SHIFT);
             }
             state->OnKeyPressed(STB_TEXTEDIT_K_DELETE | k_mask);
         }
         else if (IsKeyPressed(ImGuiKey_Backspace) && !is_readonly)
         {
             if (!state->HasSelection())
-            {
-                if (is_wordmove_key_down)
-                    state->OnKeyPressed(STB_TEXTEDIT_K_WORDLEFT | STB_TEXTEDIT_K_SHIFT);
-                else if (is_osx && io.KeyCtrl && !io.KeyAlt && !io.KeySuper)
+            {   
+                if (is_startend_key_down)  
                     state->OnKeyPressed(STB_TEXTEDIT_K_LINESTART | STB_TEXTEDIT_K_SHIFT);
+                else if (is_wordmove_key_down) // ctrl
+                    state->OnKeyPressed(STB_TEXTEDIT_K_WORDLEFT | STB_TEXTEDIT_K_SHIFT);
+                else if (is_subword_key_down) // alt
+                    state->OnKeyPressed(STB_TEXTEDIT_K_SUBWORDLEFT | STB_TEXTEDIT_K_SHIFT);
             }
             state->OnKeyPressed(STB_TEXTEDIT_K_BACKSPACE | k_mask);
         }

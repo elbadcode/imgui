@@ -877,6 +877,47 @@ retry:
          stb_textedit_clamp( str, state );
          break;
 #endif
+#ifdef STB_TEXTEDIT_MOVESUBWORDLEFT
+      case STB_TEXTEDIT_K_SUBWORDLEFT:
+         if (STB_TEXT_HAS_SELECTION(state))
+            stb_textedit_move_to_first(state);
+         else {
+            state->cursor = STB_TEXTEDIT_MOVESUBWORDLEFT(str, state->cursor);
+            stb_textedit_clamp(str, state);
+         }
+         break;
+
+      case STB_TEXTEDIT_K_SUBWORDLEFT | STB_TEXTEDIT_K_SHIFT:
+         if (!STB_TEXT_HAS_SELECTION(state))
+            stb_textedit_prep_selection_at_cursor(state);
+
+         state->cursor = STB_TEXTEDIT_MOVESUBWORDLEFT(str, state->cursor);
+         state->select_end = state->cursor;
+
+         stb_textedit_clamp(str, state);
+         break;
+#endif
+
+#ifdef STB_TEXTEDIT_MOVESUBWORDRIGHT
+      case STB_TEXTEDIT_K_SUBWORDRIGHT:
+         if (STB_TEXT_HAS_SELECTION(state))
+            stb_textedit_move_to_last(str, state);
+         else {
+            state->cursor = STB_TEXTEDIT_MOVESUBWORDRIGHT(str, state->cursor);
+            stb_textedit_clamp(str, state);
+         }
+         break;
+
+      case STB_TEXTEDIT_K_SUBWORDRIGHT | STB_TEXTEDIT_K_SHIFT:
+         if (!STB_TEXT_HAS_SELECTION(state))
+            stb_textedit_prep_selection_at_cursor(state);
+
+         state->cursor = STB_TEXTEDIT_MOVESUBWORDRIGHT(str, state->cursor);
+         state->select_end = state->cursor;
+
+         stb_textedit_clamp(str, state);
+         break;
+#endif
 
       case STB_TEXTEDIT_K_RIGHT | STB_TEXTEDIT_K_SHIFT:
          stb_textedit_prep_selection_at_cursor(state);
