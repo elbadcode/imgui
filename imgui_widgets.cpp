@@ -4134,11 +4134,11 @@ static int is_subword_boundary_from_right(ImGuiInputTextState* obj, int idx)
     bool curr_wsepar = ImCharIsSeparatorW(curr_c);
     bool prev_white = ImCharIsBlankW(prev_c);
     bool prev_separ = ImCharIsSubwordSeparatorW(prev_c);
-    bool curr_white = ImCharIsBlankW(curr_c);
+    //bool curr_white = ImCharIsBlankW(curr_c);
     bool curr_separ = ImCharIsSubwordSeparatorW(curr_c);
     return ((!prev_upper && curr_upper) || (curr_upper && curr_wsepar && prev_white) ||  // camelcase
                 (!(prev_white || prev_separ) && curr_separ)  || curr_wsepar ||
-        (curr_separ && !prev_separ) || (!curr_separ && prev_wsepar));
+                (curr_separ && !prev_separ) || (!curr_separ && prev_wsepar));
 }
 static int is_subword_boundary_from_left(ImGuiInputTextState* obj, int idx)
 {
@@ -4153,11 +4153,11 @@ static int is_subword_boundary_from_left(ImGuiInputTextState* obj, int idx)
     bool curr_upper = ImCharIsUpper(curr_c);
     bool prev_wsepar = ImCharIsSeparatorW(prev_c);
     bool curr_wsepar = ImCharIsSeparatorW(curr_c);
-    bool prev_white = ImCharIsBlankW(prev_c);
+    //bool prev_white = ImCharIsBlankW(prev_c);
     bool prev_separ = ImCharIsSubwordSeparatorW(prev_c);
-    bool curr_white = ImCharIsBlankW(curr_c);
+    //bool curr_white = ImCharIsBlankW(curr_c);
     bool curr_separ = ImCharIsSubwordSeparatorW(curr_c);
-    return ((!prev_separ && (curr_separ)) || !(prev_separ) && prev_wsepar || curr_wsepar || (prev_upper && !curr_upper));
+    return ((!prev_separ && (curr_separ)) || (!(prev_separ) && prev_wsepar) || curr_wsepar || (prev_upper && !curr_upper));
 }
 static int  STB_TEXTEDIT_MOVEWORDLEFT_IMPL(ImGuiInputTextState* obj, int idx)
 {
